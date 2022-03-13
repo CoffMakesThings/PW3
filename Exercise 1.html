@@ -1,0 +1,329 @@
+<!--
+	Exercise 1
+	Build with three.js a 3D environment that will be used for all the exercises of this course.
+	This 3D environment will simulate a futuristic scene with 2 screens next to each other presenting, for
+	the first, a source image (which can come from an image file, a video file or a webcam) and for the
+	second, the processed image.
+	The choice of the type of source images will be defined by a parameter passed to the URL for the
+	corresponding web page, like in this example:
+	imageprocessing.html?sourceimage=type
+	Where type can be image, video or webcam
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+			margin: 0;
+			padding: 0;
+			width: 100%;
+			height: 100%;
+			
+			margin: 0;
+			overflow: hidden;
+			background-color: #AAAAAA;
+			background-attachment: fixed !important;
+			}
+		</style>
+		<style>
+			body {
+				font-family: Monospace;
+				margin: 0px;
+				overflow: hidden;
+			}
+		</style>
+	</head>
+	<body>
+
+	<script id="vertShader" type="shader">
+		out vec2 vUv;
+		uniform float width;
+		uniform float height;
+
+		precision highp float;
+
+		void main() {
+			vUv = uv;
+
+			gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0 );
+		}
+	</script>
+
+	<script id="fragShader" type="shader">
+		precision highp float;
+		in vec2 vUv;
+
+		uniform sampler2D image;
+
+		out vec4 out_FragColor;
+
+		void main(void) {
+			vec4 color = texture(image, vUv);
+			out_FragColor = color;
+		}
+	</script>
+
+	<script id="vertShader2" type="shader">
+		precision highp float;
+	
+		void main() {
+			gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0 );
+		}
+	</script>
+	
+	<script id="fragShader2" type="shader">
+		uniform sampler2D image;
+	
+		out vec4 out_FragColor;
+	
+		void main(void) {
+			vec4 textureValue = vec4 ( 0,0,0,0 );
+			textureValue += texelFetch( image, ivec2(int(gl_FragCoord.x), int(gl_FragCoord.y)), 0 );
+			textureValue = vec4(1. - textureValue.r, 1. - textureValue.g, 1. - textureValue.b, textureValue.a);
+			out_FragColor = textureValue;
+		}
+	</script>
+<script type="module">
+
+
+import * as THREE from 'https://cdn.skypack.dev/three@0.136.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
+import { GUI } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/libs/lil-gui.module.min.js';
+import { WEBGL } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/WebGL.js';
+
+var camera, controls, scene, renderer, container;
+var context, canvas;
+var plane1;
+var plane2;
+var loaderPromise, video, videoTexture;
+var imageProcessingHandler;
+
+// Setup image processing
+class ImageProcessingHandler {
+	constructor( height, width, imageProcessingMaterial ) {
+		this.height = height;
+		this.width = width;
+
+		this.scene = new THREE.Scene();
+		this.orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1 / Math.pow( 2, 53 ), 1 );
+
+		var options = {
+			minFilter: THREE.NearestFilter,
+			magFilter: THREE.NearestFilter,
+			format: THREE.RGBAFormat,
+			type:THREE.FloatType,
+			canvas: canvas, 
+			context: context
+		};
+
+		this.rtt = new THREE.WebGLRenderTarget( width, height, options);
+
+		var geom = new THREE.BufferGeometry();
+		geom.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array([-1,-1,0, 1,-1,0, 1,1,0, -1,-1, 0, 1, 1, 0, -1,1,0 ]), 3 ) );
+		this.scene.add( new THREE.Mesh( geom, imageProcessingMaterial ) );
+	} 
+}
+
+function processImage ( imageProcessing, renderer )
+{
+	renderer.setRenderTarget( imageProcessing.rtt );
+	renderer.render ( imageProcessing.scene, imageProcessing.orthoCamera ); 	
+	renderer.setRenderTarget( null );
+};
+
+// Load sourceImage url param
+const queryString = window.location.search;
+const urlParams = new URLSearchParams(queryString);
+var sourceImage = urlParams.get('sourceimage')
+console.log("sourceImage is " + sourceImage);
+
+if (sourceImage == null) {
+	console.log("Defaulting sourceImage to image")
+	sourceImage = 'image';
+	console.log("sourceImage is " + sourceImage); 
+}
+
+// Load video from webcam
+if (sourceImage == 'webcam') {
+	loaderPromise = new Promise((resolve) => {
+		if ( navigator.mediaDevices && navigator.mediaDevices.getUserMedia ) {
+			const constraints = { video: { width: 1920, height: 1080, facingMode: 'user' } };
+			resolve(navigator.mediaDevices.getUserMedia( constraints ));
+		}
+	}).then(stream => {
+		return new Promise(resolve => {
+			video = document.createElement('video');
+			video.srcObject = stream;
+			video.play();
+
+			video.onloadeddata = () => { 
+				videoTexture = new THREE.VideoTexture( video );
+				videoTexture.minFilter = THREE.NearestFilter;
+				videoTexture.magFilter = THREE.NearestFilter;
+				videoTexture.generateMipmaps = false; 
+				videoTexture.format = THREE.RGBFormat;
+
+				resolve();
+			}
+		});
+	});
+}
+
+// Load video from file
+if (sourceImage == 'video') {
+	video = document.createElement('video');
+	video.src = 'video.mp4';
+	video.load();
+	video.muted = true;
+	video.loop = true;
+
+	loaderPromise = new Promise((resolve) => {
+		video.onloadeddata = function () 
+		{
+			videoTexture = new THREE.VideoTexture( video );
+			videoTexture.minFilter = THREE.NearestFilter;
+			videoTexture.magFilter = THREE.NearestFilter;
+			videoTexture.generateMipmaps = false; 
+			videoTexture.format = THREE.RGBFormat;
+			video.play();
+
+			resolve();
+		}
+	});
+}
+
+// Load image
+var imageTexture;
+
+if (sourceImage == 'image') {
+	loaderPromise = new Promise((resolve) => {
+		imageTexture = new THREE.TextureLoader().load( 'cat.jpg', () => { resolve() } );
+	});
+}
+
+loaderPromise.then(() => {
+	init();
+	animate();
+});
+
+function degToRad(degrees)
+{
+  var pi = Math.PI;
+  return degrees * (pi/180);
+}
+
+function init () {
+    if ( WEBGL.isWebGL2Available() === false ) {
+		document.body.appendChild( WEBGL.getWebGL2ErrorMessage() );
+	}	
+    container = document.createElement( 'div' );
+	document.body.appendChild( container );
+	
+    canvas = document.createElement( 'canvas' );
+	context = canvas.getContext( 'webgl2' );
+	document.body.appendChild( canvas );
+
+	scene = new THREE.Scene(); 
+
+	renderer = new THREE.WebGLRenderer( {  canvas: canvas, context: context});
+	renderer.autoClear = false;
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	renderer.shadowMap.enabled = false;
+
+	container.appendChild( renderer.domElement );
+
+	camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.001, 10 );
+	camera.position.z = 0.7;
+	controls = new OrbitControls( camera, renderer.domElement );
+	controls.minDistance = 0.005;
+	controls.maxDistance = 1.0;
+	controls.enableRotate = true;
+	controls.addEventListener( 'change', render );
+	controls.update();
+	
+	var texture, aspect, width, height;
+
+	switch(sourceImage) {
+		case 'video':
+		case 'webcam':
+			texture = videoTexture;
+			width = video.videoWidth;
+			height = video.videoHeight;
+			break;
+		default:
+			texture = imageTexture;
+			width = imageTexture.image.width;
+			height = imageTexture.image.height;
+	}
+
+	var aspect = height / width;
+	var geometry = new THREE.PlaneGeometry( 1, aspect );
+
+	var imageProcessingMaterial = new THREE.ShaderMaterial({
+    	uniforms: {
+        	image: {type: 't', value: texture}
+    	},
+    	vertexShader: document.getElementById('vertShader2').text,
+    	fragmentShader: document.getElementById('fragShader2').text,
+        glslVersion: THREE.GLSL3
+	});
+
+	imageProcessingHandler = new ImageProcessingHandler ( height, width, imageProcessingMaterial );
+
+	var material1 = new THREE.MeshBasicMaterial( { map: texture, side : THREE.DoubleSide } );
+	var material2 = new THREE.MeshBasicMaterial( { map: imageProcessingHandler.rtt.texture, side : THREE.DoubleSide } );
+
+	plane1 = new THREE.Mesh( geometry, material1 );
+	plane1.receiveShadow = false;
+	plane1.castShadow = false;
+	scene.add( plane1 );
+
+	plane2 = new THREE.Mesh( geometry, material2 );
+	plane2.receiveShadow = false;
+	plane2.castShadow = false;
+	scene.add( plane2 );
+
+	// Tilt the planes towards the camera
+
+	var angle = degToRad(30);
+	var distance = Math.cos(angle) / 2;
+
+	plane1.position.x -= distance;
+	plane1.rotation.y = angle;
+	plane2.position.x += distance;
+	plane2.rotation.y = -angle;
+
+	window.addEventListener( 'resize', onWindowResize, false );
+}
+
+function render () {
+	renderer.clear();
+
+	if (typeof ImageProcessingHandler !== 'undefined') {
+		processImage ( imageProcessingHandler, renderer );
+	}
+
+	renderer.render( scene, camera );
+	
+}
+
+function animate() {	
+	requestAnimationFrame(animate);
+	controls.update();
+	render();
+}
+
+function onWindowResize () {
+	camera.aspect = ( window.innerWidth / window.innerHeight);
+	camera.updateProjectionMatrix();
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	render();
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+unsigned chart
+rgba 8 bit
+
+weight 1 - ouput 1-9
+weight 1/9 - average
+gaussian - gaussian filtering
+laplacian - look it up - -1 except for center which is 8 - result -1 or 8
+
+median filter - if 9x9 median is very different from center, center is noise
+Make array of neighbours, sort, pick mid
+replace center with median
+
+if rgb
+3 planes
+do for r g and b as if theyre grayscale
+
+Combine gaussian (average?) and median - Take average of mid 5 ie
+
+shadermaterial not rawshader
+
+ctrl shift i
+
+cubic scaling instead of trillinear?
+
+scale matrix
+
+
+x, y => x*s, y*s
+
+dont use texture2d, opengl's interpolation, dont know what happen
+
+videoTexture.minFilter = THREE.NearestFilter;
+not LinearFilter
+Therefore no interpolation
