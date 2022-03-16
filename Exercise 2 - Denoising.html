@@ -1,8 +1,6 @@
 <!--
-	Convolution
-		• Gaussian filter
-			o Parameters: kernel size, sigma
-		• Laplacian filter (where the result can be a color or the norm of this color)
+	• K-nearest neighbor filter (based on median filtering)
+		o Parameters: kernel size, % of the neighbor used
 -->
 
 <!DOCTYPE html>
@@ -34,14 +32,14 @@
 	<body>
 
 	<script id="vertShader" type="shader">
-		precision highp float;
-	
 		void main() {
 			gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0 );
 		}
 	</script>
-	
+
 	<script id="fragShaderScaling" type="shader">
+		precision highp float;
+
 		uniform sampler2D image;
 		uniform float scaleFactor;
 		uniform bool bilinearFiltering;
@@ -83,65 +81,80 @@
 		}
 	</script>
 
-	<script id="fragShaderGaussian" type="shader">
+	<script id="fragShaderDenoising" type="shader">
 		uniform sampler2D image;
-		uniform int kernelSize;
-		uniform float sigma;
+		uniform int kernelOffset;
+		uniform float coverage;
 	
 		out vec4 out_FragColor;
-	
-		void main(void) {
-			float pi = 3.14159265359;
-			float eulers = 2.71828182846;
 
-			float sampleX = gl_FragCoord.x;
-			float sampleY = gl_FragCoord.y;
-			
-			int count = 0;
-			vec4 value = vec4(0, 0, 0, 1);
-			for (int x = -kernelSize; x < kernelSize + 1; x++) {
-				for (int y = -kernelSize; y < kernelSize + 1; y++) {
-					vec4 rawValue = texelFetch(image, ivec2(int(sampleX) + x, int(sampleY) + y), 0);
-					float gauss = (1. / 2. * pi * pow(sigma, 2.)) * pow(eulers, -(pow(float(x), 2.) + pow(float(y), 2.)) / (2. * pow(sigma, 2.)));
-					value += rawValue * gauss;
-					count++;
+		void sort(inout float arr[amountOfKernels]) {
+			// Insertion sort
+			for (int x = 1; x < amountOfKernels; x++) {
+				float currValue = arr[x];
+
+				int y = x - 1;
+				while (y >= 0 && currValue <= arr[y]) {
+					arr[y + 1] = arr[y];
+					y--;
 				}
-			}
 
-			value = value / float(count);
-			out_FragColor = value;
+				arr[y + 1] = currValue;
+			}
 		}
-	</script>
 
-	<script id="fragShaderLaplace" type="shader">
-		uniform sampler2D image;
-		uniform int type;
-		uniform mat3 laplaceMatrix;
-	
-		out vec4 out_FragColor;
-	
+		float getMean(float arr[amountOfKernels], int minRange, int maxRange) {
+			float sum = 0.;
+
+			for (int i = minRange; i <= maxRange; i++) {
+				sum += arr[i];
+			}
+
+			int count = (maxRange - minRange) + 1;
+			return sum / float(count);
+		}
+
 		void main(void) {
 			float sampleX = gl_FragCoord.x;
 			float sampleY = gl_FragCoord.y;
-			
+
+			float rs[amountOfKernels];
+			float gs[amountOfKernels];
+			float bs[amountOfKernels];
+
 			int count = 0;
-			vec4 value = vec4(0, 0, 0, 1);
-			for (int x = -1; x < 2; x++) {
-				for (int y = -1; y < 2; y++) {
-					vec4 rawValue = texelFetch(image, ivec2(int(sampleX) + x, int(sampleY) + y), 0);
-					float laplace = laplaceMatrix[x + 1][y + 1];
-					value += rawValue * laplace;
+
+			for (int x = -kernelOffset; x < kernelOffset + 1; x++) {
+				for (int y = -kernelOffset; y < kernelOffset + 1; y++) {
+					vec3 textureValue = vec3(texelFetch(image, ivec2(int(sampleX) + x, int(sampleY) + y), 0).rgb);
+					rs[count] = textureValue.r;
+					gs[count] = textureValue.g;
+					bs[count] = textureValue.b;
 					count++;
 				}
 			}
 
-			// value = value / float(count);
-			out_FragColor = value;
-			// out_FragColor = vec4(1, 1, 0, 1);
+			sort(rs);
+			sort(gs);
+			sort(bs);
+
+			float middleIndex = float(amountOfKernels) / 2.;
+			float indexRange = (float(amountOfKernels) * coverage) / 2.;
+			int minRange = int(float(middleIndex) - indexRange);
+			int maxRange = int(float(middleIndex) + indexRange);
+			
+			/*
+			if (minRange == 0) {
+				out_FragColor = vec4(1, 1, 1, 0);
+			} else {
+				out_FragColor = vec4(1, 0, 0, 0);
+			}
+			*/
+
+			out_FragColor = vec4(getMean(rs, minRange, maxRange), getMean(gs, minRange, maxRange), getMean(bs, minRange, maxRange), 1.);
 		}
 	</script>
 <script type="module">
-
 
 import * as THREE from 'https://cdn.skypack.dev/three@0.136.0/build/three.module.js';
 import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
@@ -154,15 +167,9 @@ var plane1;
 var plane2;
 var loaderPromise, video, videoTexture;
 var scalingHandler;
-var convolutionHandler;
+var denoisingHandler;
 var gui;
 var guiObject;
-
-const laplaceMatrix = new THREE.Matrix3();
-
-laplaceMatrix.set( -1, -1, -1,
-        -1, 8, -1,
-        -1, -1, -1 );
 
 // Setup image processing
 class ImageProcessingHandler {
@@ -329,24 +336,26 @@ function init () {
 	var aspect = height / width;
 	var geometry = new THREE.PlaneGeometry( 1, aspect );
 
-	var convolutionMaterial = new THREE.ShaderMaterial({
+	var denoisingMaterial = new THREE.ShaderMaterial({
     	uniforms: {
 			image: {type: 't', value: texture},
 			scaleFactor: {type: 'f', value: 1},
-			kernelSize: {type: 'i', value: 1},
-			sigma: {type: 'f', value: 1},
-			laplaceMatrix: {value: laplaceMatrix}
+			kernelOffset: {type: 'i', value: 1},
+			coverage: {type: 'f', value: 0.1}
     	},
+		defines: {
+			amountOfKernels: 9
+		},
     	vertexShader: document.getElementById('vertShader').text,
-    	fragmentShader: document.getElementById('fragShaderGaussian').text,
+    	fragmentShader: document.getElementById('fragShaderDenoising').text,
         glslVersion: THREE.GLSL3
 	});
 
-	convolutionHandler = new ImageProcessingHandler ( height, width, convolutionMaterial );
+	denoisingHandler = new ImageProcessingHandler ( height, width, denoisingMaterial );
 
 	var scalingMaterial = new THREE.ShaderMaterial({
     	uniforms: {
-			image: {type: 't', value: convolutionHandler.rtt.texture },
+			image: {type: 't', value: denoisingHandler.rtt.texture },
         	scaleFactor: {type: 'f', value: 1},
 			bilinearFiltering: {value: true},
 			frag: {value: false}
@@ -360,65 +369,12 @@ function init () {
 
 	// GUI
 
-	const convolutionOptions = {
-      'Addition': 0,
-      'Subtraction': 1,
-      'Division': 2,
-	  'Multiplication': 3
-    }
-
 	gui = new GUI();
 
-	guiObject = {
-		convolutionType: 'Gaussian'
-	}
-
-	gui.add(convolutionMaterial.uniforms.kernelSize, 'value', 0, 10, 1).name('Kernel Size');
-	gui.add(convolutionMaterial.uniforms.sigma, 'value', 0.75, 2.6).name('Sigma');
-	gui.add(guiObject, 'convolutionType', ["Gaussian", "Laplacian"]).name('Convolution').onChange(val => {
-		console.log("yo");
-		var fragShader;
-
-		switch(val) {
-			case "Gaussian":
-				fragShader = document.getElementById('fragShaderGaussian').text;
-				break;
-			case "Laplacian":
-				console.log("yo2");
-				fragShader = document.getElementById('fragShaderLaplace').text;
-				break;
-		}
-
-		var convolutionMaterial = new THREE.ShaderMaterial({
-			uniforms: {
-				image: {type: 't', value: texture},
-				scaleFactor: {type: 'f', value: 1},
-				kernelSize: {type: 'i', value: 1},
-				sigma: {type: 'f', value: 1},
-				laplaceMatrix: {value: laplaceMatrix}
-			},
-			vertexShader: document.getElementById('vertShader').text,
-			fragmentShader: fragShader,
-			glslVersion: THREE.GLSL3
-		});
-
-		convolutionHandler = new ImageProcessingHandler ( height, width, convolutionMaterial );
-		scalingMaterial.uniforms.image.value = convolutionHandler.rtt.texture;
-		scalingHandler = new ImageProcessingHandler ( height, width, scalingMaterial );
-
-		scene.remove( plane2 );
-		var scaledGeometry = new THREE.PlaneGeometry( 1, aspect );
-		var material2 = new THREE.MeshBasicMaterial( { map: scalingHandler.rtt.texture, side: THREE.DoubleSide } );
-
-		plane2 = new THREE.Mesh( scaledGeometry, material2 );
-		scene.add(plane2);
-
-		var angle = degToRad(0);
-		var distance = 1 * Math.cos(angle) / 2;
-
-		plane2.position.x += distance;
-		plane2.rotation.y = -angle;
+	gui.add(denoisingMaterial.uniforms.kernelOffset, 'value', 1, 10, 1).name('Kernel Distance').onChange(val => {
+		denoisingMaterial.defines.amountOfKernels = (val * 2 + 1) * (val * 2 + 1);
 	});
+	gui.add(denoisingMaterial.uniforms.coverage, 'value', 0, 1).name('Coverage');
 
 	var material1 = new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } );
 	var material2 = new THREE.MeshBasicMaterial( { map: scalingHandler.rtt.texture, side : THREE.DoubleSide } );
@@ -449,8 +405,8 @@ function init () {
 function render () {
 	renderer.clear();
 
-	if (convolutionHandler) {
-		processImage ( convolutionHandler, renderer );
+	if (denoisingHandler) {
+		processImage ( denoisingHandler, renderer );
 	}
 
 	if (scalingHandler) {

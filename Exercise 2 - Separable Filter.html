@@ -1,8 +1,7 @@
 <!--
-	Convolution
-		• Gaussian filter
+	Separable Filter
+		• GaussianHorizontal filter
 			o Parameters: kernel size, sigma
-		• Laplacian filter (where the result can be a color or the norm of this color)
 -->
 
 <!DOCTYPE html>
@@ -83,7 +82,7 @@
 		}
 	</script>
 
-	<script id="fragShaderGaussian" type="shader">
+	<script id="fragShaderGaussianHorizontal" type="shader">
 		uniform sampler2D image;
 		uniform int kernelSize;
 		uniform float sigma;
@@ -99,45 +98,45 @@
 			
 			int count = 0;
 			vec4 value = vec4(0, 0, 0, 1);
+
 			for (int x = -kernelSize; x < kernelSize + 1; x++) {
-				for (int y = -kernelSize; y < kernelSize + 1; y++) {
-					vec4 rawValue = texelFetch(image, ivec2(int(sampleX) + x, int(sampleY) + y), 0);
-					float gauss = (1. / 2. * pi * pow(sigma, 2.)) * pow(eulers, -(pow(float(x), 2.) + pow(float(y), 2.)) / (2. * pow(sigma, 2.)));
-					value += rawValue * gauss;
-					count++;
-				}
+				int y = 0;
+				vec4 rawValue = texelFetch(image, ivec2(int(sampleX) + x, int(sampleY) + y), 0);
+				float gauss = (1. / 2. * pi * pow(sigma, 2.)) * pow(eulers, -(pow(float(x), 2.) + pow(float(y), 2.)) / (2. * pow(sigma, 2.)));
+				value += rawValue * gauss;
+				count++;
 			}
 
-			value = value / float(count);
-			out_FragColor = value;
+			out_FragColor = value / float(count);
 		}
 	</script>
 
-	<script id="fragShaderLaplace" type="shader">
+	<script id="fragShaderGaussianVertical" type="shader">
 		uniform sampler2D image;
-		uniform int type;
-		uniform mat3 laplaceMatrix;
+		uniform int kernelSize;
+		uniform float sigma;
 	
 		out vec4 out_FragColor;
 	
 		void main(void) {
+			float pi = 3.14159265359;
+			float eulers = 2.71828182846;
+
 			float sampleX = gl_FragCoord.x;
 			float sampleY = gl_FragCoord.y;
-			
-			int count = 0;
+
 			vec4 value = vec4(0, 0, 0, 1);
-			for (int x = -1; x < 2; x++) {
-				for (int y = -1; y < 2; y++) {
-					vec4 rawValue = texelFetch(image, ivec2(int(sampleX) + x, int(sampleY) + y), 0);
-					float laplace = laplaceMatrix[x + 1][y + 1];
-					value += rawValue * laplace;
-					count++;
-				}
+			int count = 0;
+
+			for (int y = -kernelSize; y < kernelSize + 1; y++) {
+				int x = 0;
+				vec4 rawValue = texelFetch(image, ivec2(int(sampleX) + x, int(sampleY) + y), 0);
+				float gauss = (1. / 2. * pi * pow(sigma, 2.)) * pow(eulers, -(pow(float(x), 2.) + pow(float(y), 2.)) / (2. * pow(sigma, 2.)));
+				value += rawValue * gauss;
+				count++;
 			}
 
-			// value = value / float(count);
-			out_FragColor = value;
-			// out_FragColor = vec4(1, 1, 0, 1);
+			out_FragColor = value / float(count);
 		}
 	</script>
 <script type="module">
@@ -154,15 +153,10 @@ var plane1;
 var plane2;
 var loaderPromise, video, videoTexture;
 var scalingHandler;
-var convolutionHandler;
+var horizontalGaussianHandler;
+var verticalGaussianHandler;
 var gui;
 var guiObject;
-
-const laplaceMatrix = new THREE.Matrix3();
-
-laplaceMatrix.set( -1, -1, -1,
-        -1, 8, -1,
-        -1, -1, -1 );
 
 // Setup image processing
 class ImageProcessingHandler {
@@ -329,24 +323,37 @@ function init () {
 	var aspect = height / width;
 	var geometry = new THREE.PlaneGeometry( 1, aspect );
 
-	var convolutionMaterial = new THREE.ShaderMaterial({
+	var horizontalGaussianMaterial = new THREE.ShaderMaterial({
     	uniforms: {
 			image: {type: 't', value: texture},
 			scaleFactor: {type: 'f', value: 1},
 			kernelSize: {type: 'i', value: 1},
-			sigma: {type: 'f', value: 1},
-			laplaceMatrix: {value: laplaceMatrix}
+			sigma: {type: 'f', value: 1}
     	},
     	vertexShader: document.getElementById('vertShader').text,
-    	fragmentShader: document.getElementById('fragShaderGaussian').text,
+    	fragmentShader: document.getElementById('fragShaderGaussianHorizontal').text,
         glslVersion: THREE.GLSL3
 	});
 
-	convolutionHandler = new ImageProcessingHandler ( height, width, convolutionMaterial );
+	horizontalGaussianHandler = new ImageProcessingHandler ( height, width, horizontalGaussianMaterial );
+
+	var verticalGaussianMaterial = new THREE.ShaderMaterial({
+    	uniforms: {
+			image: {type: 't', value: horizontalGaussianHandler.rtt.texture},
+			scaleFactor: {type: 'f', value: 1},
+			kernelSize: {type: 'i', value: 1},
+			sigma: {type: 'f', value: 1}
+    	},
+    	vertexShader: document.getElementById('vertShader').text,
+    	fragmentShader: document.getElementById('fragShaderGaussianVertical').text,
+        glslVersion: THREE.GLSL3
+	});
+
+	verticalGaussianHandler = new ImageProcessingHandler ( height, width, verticalGaussianMaterial );
 
 	var scalingMaterial = new THREE.ShaderMaterial({
     	uniforms: {
-			image: {type: 't', value: convolutionHandler.rtt.texture },
+			image: {type: 't', value: horizontalGaussianHandler.rtt.texture },
         	scaleFactor: {type: 'f', value: 1},
 			bilinearFiltering: {value: true},
 			frag: {value: false}
@@ -360,64 +367,13 @@ function init () {
 
 	// GUI
 
-	const convolutionOptions = {
-      'Addition': 0,
-      'Subtraction': 1,
-      'Division': 2,
-	  'Multiplication': 3
-    }
-
 	gui = new GUI();
 
-	guiObject = {
-		convolutionType: 'Gaussian'
-	}
-
-	gui.add(convolutionMaterial.uniforms.kernelSize, 'value', 0, 10, 1).name('Kernel Size');
-	gui.add(convolutionMaterial.uniforms.sigma, 'value', 0.75, 2.6).name('Sigma');
-	gui.add(guiObject, 'convolutionType', ["Gaussian", "Laplacian"]).name('Convolution').onChange(val => {
-		console.log("yo");
-		var fragShader;
-
-		switch(val) {
-			case "Gaussian":
-				fragShader = document.getElementById('fragShaderGaussian').text;
-				break;
-			case "Laplacian":
-				console.log("yo2");
-				fragShader = document.getElementById('fragShaderLaplace').text;
-				break;
-		}
-
-		var convolutionMaterial = new THREE.ShaderMaterial({
-			uniforms: {
-				image: {type: 't', value: texture},
-				scaleFactor: {type: 'f', value: 1},
-				kernelSize: {type: 'i', value: 1},
-				sigma: {type: 'f', value: 1},
-				laplaceMatrix: {value: laplaceMatrix}
-			},
-			vertexShader: document.getElementById('vertShader').text,
-			fragmentShader: fragShader,
-			glslVersion: THREE.GLSL3
-		});
-
-		convolutionHandler = new ImageProcessingHandler ( height, width, convolutionMaterial );
-		scalingMaterial.uniforms.image.value = convolutionHandler.rtt.texture;
-		scalingHandler = new ImageProcessingHandler ( height, width, scalingMaterial );
-
-		scene.remove( plane2 );
-		var scaledGeometry = new THREE.PlaneGeometry( 1, aspect );
-		var material2 = new THREE.MeshBasicMaterial( { map: scalingHandler.rtt.texture, side: THREE.DoubleSide } );
-
-		plane2 = new THREE.Mesh( scaledGeometry, material2 );
-		scene.add(plane2);
-
-		var angle = degToRad(0);
-		var distance = 1 * Math.cos(angle) / 2;
-
-		plane2.position.x += distance;
-		plane2.rotation.y = -angle;
+	gui.add(horizontalGaussianMaterial.uniforms.kernelSize, 'value', 0, 10, 1).name('Kernel Size').onChange(val => {
+		verticalGaussianMaterial.uniforms.kernelSize = val;
+	});
+	gui.add(horizontalGaussianMaterial.uniforms.sigma, 'value', 0.75, 2.6).name('Sigma').onChange(val => {
+		verticalGaussianMaterial.uniforms.sigma = val;
 	});
 
 	var material1 = new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } );
@@ -449,8 +405,12 @@ function init () {
 function render () {
 	renderer.clear();
 
-	if (convolutionHandler) {
-		processImage ( convolutionHandler, renderer );
+	if (horizontalGaussianHandler) {
+		processImage ( horizontalGaussianHandler, renderer );
+	}
+
+	if (verticalGaussianHandler) {
+		processImage ( verticalGaussianHandler, renderer );
 	}
 
 	if (scalingHandler) {
