@@ -1,6 +1,5 @@
 <!--
-	• K-nearest neighbor filter (based on median filtering)
-		o Parameters: kernel size, % of the neighbor used
+	Exercise 3 - Organize your code to easily implement a stream processing graph
 -->
 
 <!DOCTYPE html>
@@ -32,52 +31,40 @@
 	<body>
 
 	<script id="vertShader" type="shader">
+		precision highp float;
+	
 		void main() {
 			gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0 );
 		}
 	</script>
 
-	<script id="fragShaderScaling" type="shader">
-		precision highp float;
-
+	<script id="fragShaderGaussian" type="shader">
 		uniform sampler2D image;
-		uniform float scaleFactor;
-		uniform bool bilinearFiltering;
-		uniform bool frag;
+		uniform int kernelSize;
+		uniform float sigma;
 	
 		out vec4 out_FragColor;
 	
 		void main(void) {
-			float sampleX = gl_FragCoord.x / scaleFactor;
-			float sampleY = gl_FragCoord.y / scaleFactor;
+			float pi = 3.14159265359;
+			float eulers = 2.71828182846;
+
+			float sampleX = gl_FragCoord.x;
+			float sampleY = gl_FragCoord.y;
 			
-			// Nearest neighbour
-			vec4 textureValue = texelFetch(image, ivec2(int(sampleX), int(sampleY)), 0);
-
-			if (bilinearFiltering) {
-				// Bilinear Filtering
-				ivec2 bottomLeftCoordinate = ivec2(floor(sampleX), floor(sampleY));
-				ivec2 bottomRightCoordinate = ivec2(ceil(sampleX), floor(sampleY));
-				ivec2 topLeftCoordinate = ivec2(floor(sampleX), ceil(sampleY));
-				ivec2 topRightCoordinate = ivec2(ceil(sampleX), ceil(sampleY));
-
-				vec4 bottomLeftValue = texelFetch( image, bottomLeftCoordinate, 0 );
-				vec4 bottomRightValue = texelFetch( image, bottomRightCoordinate, 0 );
-				vec4 topLeftValue = texelFetch( image, topLeftCoordinate, 0 );
-				vec4 topRightValue = texelFetch( image, topRightCoordinate, 0 );
-
-				vec4 topXAverage = topRightValue * (sampleX - floor(sampleX)) + topLeftValue * (ceil(sampleX) - sampleX);
-				vec4 bottomXAverage = bottomRightValue * (sampleX - floor(sampleX)) + bottomLeftValue * (ceil(sampleX) - sampleX);
-				vec4 average = topXAverage * (sampleY - floor(sampleY)) + bottomXAverage * (ceil(sampleY) - sampleY);
-
-				textureValue = average;
+			int count = 0;
+			vec4 value = vec4(0, 0, 0, 1);
+			for (int x = -kernelSize; x < kernelSize + 1; x++) {
+				for (int y = -kernelSize; y < kernelSize + 1; y++) {
+					vec4 rawValue = texelFetch(image, ivec2(int(sampleX) + x, int(sampleY) + y), 0);
+					float gauss = (1. / 2. * pi * pow(sigma, 2.)) * pow(eulers, -(pow(float(x), 2.) + pow(float(y), 2.)) / (2. * pow(sigma, 2.)));
+					value += rawValue * gauss;
+					count++;
+				}
 			}
-			if (frag) {
-				// Show gradient of fragment coordinates
-				float multiplier = gl_FragCoord.x / 3000. + gl_FragCoord.y / 1500.;
-				textureValue = vec4(multiplier, multiplier, multiplier, 1);
-			}
-			out_FragColor = textureValue;
+
+			value = value / float(count);
+			out_FragColor = value;
 		}
 	</script>
 
@@ -142,19 +129,88 @@
 			float indexRange = (float(amountOfKernels) * coverage) / 2.;
 			int minRange = int(float(middleIndex) - indexRange);
 			int maxRange = int(float(middleIndex) + indexRange);
-			
-			/*
-			if (minRange == 0) {
-				out_FragColor = vec4(1, 1, 1, 0);
-			} else {
-				out_FragColor = vec4(1, 0, 0, 0);
-			}
-			*/
 
 			out_FragColor = vec4(getMean(rs, minRange, maxRange), getMean(gs, minRange, maxRange), getMean(bs, minRange, maxRange), 1.);
 		}
 	</script>
+	
+	<script id="fragShaderScaling" type="shader">
+		uniform sampler2D image;
+		uniform float scaleFactor;
+		uniform bool bilinearFiltering;
+		uniform bool frag;
+	
+		out vec4 out_FragColor;
+	
+		void main(void) {
+			float sampleX = gl_FragCoord.x / scaleFactor;
+			float sampleY = gl_FragCoord.y / scaleFactor;
+			
+			// Nearest neighbour
+			vec4 textureValue = texelFetch(image, ivec2(int(sampleX), int(sampleY)), 0);
+
+			if (bilinearFiltering) {
+				// Bilinear Filtering
+				ivec2 bottomLeftCoordinate = ivec2(floor(sampleX), floor(sampleY));
+				ivec2 bottomRightCoordinate = ivec2(ceil(sampleX), floor(sampleY));
+				ivec2 topLeftCoordinate = ivec2(floor(sampleX), ceil(sampleY));
+				ivec2 topRightCoordinate = ivec2(ceil(sampleX), ceil(sampleY));
+
+				vec4 bottomLeftValue = texelFetch( image, bottomLeftCoordinate, 0 );
+				vec4 bottomRightValue = texelFetch( image, bottomRightCoordinate, 0 );
+				vec4 topLeftValue = texelFetch( image, topLeftCoordinate, 0 );
+				vec4 topRightValue = texelFetch( image, topRightCoordinate, 0 );
+
+				vec4 topXAverage = topRightValue * (sampleX - floor(sampleX)) + topLeftValue * (ceil(sampleX) - sampleX);
+				vec4 bottomXAverage = bottomRightValue * (sampleX - floor(sampleX)) + bottomLeftValue * (ceil(sampleX) - sampleX);
+				vec4 average = topXAverage * (sampleY - floor(sampleY)) + bottomXAverage * (ceil(sampleY) - sampleY);
+
+				textureValue = average;
+			}
+			if (frag) {
+				// Show gradient of fragment coordinates
+				float multiplier = gl_FragCoord.x / 3000. + gl_FragCoord.y / 1500.;
+				textureValue = vec4(multiplier, multiplier, multiplier, 1);
+			}
+			out_FragColor = textureValue;
+		}
+	</script>
+
+	<script id="fragShaderArithmetic" type="shader">
+		uniform sampler2D image;
+		uniform sampler2D image2;
+		uniform int type;
+		uniform float offset;
+		uniform float scaleFactor;
+	
+		out vec4 out_FragColor;
+	
+		void main(void) {
+			float sampleX = gl_FragCoord.x;
+			float sampleY = gl_FragCoord.y;
+			
+			vec4 textureValue = texelFetch(image, ivec2(int(sampleX), int(sampleY)), 0);
+			vec4 textureValue2 = texelFetch(image2, ivec2(int(sampleX), int(sampleY)), 0);
+
+			switch(type) {
+				case 1:
+					out_FragColor = (textureValue - textureValue2) * scaleFactor + offset;
+				  break;
+				case 2:
+					out_FragColor = (textureValue / textureValue2) * scaleFactor + offset;
+				  break;
+				case 3:
+					out_FragColor = (textureValue * textureValue2) * scaleFactor + offset;
+				  break;
+				default:
+					out_FragColor = (textureValue + textureValue2) * scaleFactor + offset;
+			  }
+
+			// out_FragColor = vec4(1, 0, 0, 1);
+		}
+	</script>
 <script type="module">
+
 
 import * as THREE from 'https://cdn.skypack.dev/three@0.136.0/build/three.module.js';
 import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
@@ -167,9 +223,10 @@ var plane1;
 var plane2;
 var loaderPromise, video, videoTexture;
 var scalingHandler;
+var arithmeticHandler;
 var denoisingHandler;
+var convolutionHandler;
 var gui;
-var guiObject;
 
 // Setup image processing
 class ImageProcessingHandler {
@@ -336,6 +393,20 @@ function init () {
 	var aspect = height / width;
 	var geometry = new THREE.PlaneGeometry( 1, aspect );
 
+	var convolutionMaterial = new THREE.ShaderMaterial({
+    	uniforms: {
+			image: {type: 't', value: texture},
+			scaleFactor: {type: 'f', value: 1},
+			kernelSize: {type: 'i', value: 1},
+			sigma: {type: 'f', value: 1}
+    	},
+    	vertexShader: document.getElementById('vertShader').text,
+    	fragmentShader: document.getElementById('fragShaderGaussian').text,
+        glslVersion: THREE.GLSL3
+	});
+
+	convolutionHandler = new ImageProcessingHandler ( height, width, convolutionMaterial );
+
 	var denoisingMaterial = new THREE.ShaderMaterial({
     	uniforms: {
 			image: {type: 't', value: texture},
@@ -353,14 +424,68 @@ function init () {
 
 	denoisingHandler = new ImageProcessingHandler ( height, width, denoisingMaterial );
 
+	var arithmeticMaterial = new THREE.ShaderMaterial({
+    	uniforms: {
+			image: {type: 't', value: convolutionHandler.rtt.texture},
+			image2: {type: 't', value: denoisingHandler.rtt.texture},
+			scaleFactor: {type: 'f', value: 1},
+			offset: {type: 'f', value: 0},
+			type: {value: 1}
+    	},
+    	vertexShader: document.getElementById('vertShader').text,
+    	fragmentShader: document.getElementById('fragShaderArithmetic').text,
+        glslVersion: THREE.GLSL3
+	});
+
+	arithmeticHandler = new ImageProcessingHandler ( height, width, arithmeticMaterial );
+
+	var scalingMaterial = new THREE.ShaderMaterial({
+    	uniforms: {
+			image: {type: 't', value: arithmeticHandler.rtt.texture },
+        	scaleFactor: {type: 'f', value: 1},
+			bilinearFiltering: {value: true},
+			frag: {value: false}
+    	},
+    	vertexShader: document.getElementById('vertShader').text,
+    	fragmentShader: document.getElementById('fragShaderScaling').text,
+        glslVersion: THREE.GLSL3
+	});
+
+	scalingHandler = new ImageProcessingHandler ( height, width, scalingMaterial );
+
 	// GUI
+
+	const arithmeticOptions = {
+      'Addition': 0,
+      'Subtraction': 1,
+      'Division': 2,
+	  'Multiplication': 3
+    }
 
 	gui = new GUI();
 
-	gui.add(denoisingMaterial.uniforms.kernelOffset, 'value', 1, 10, 1).name('Kernel Distance').onChange(val => {
-		denoisingMaterial.defines.amountOfKernels = (val * 2 + 1) * (val * 2 + 1);
+	gui.add(scalingMaterial.uniforms.scaleFactor, 'value', 0, 8).name('Scale Factor').onChange(scaleFactor => {
+		arithmeticMaterial.uniforms.scaleFactor = scalingMaterial.uniforms.scaleFactor;
+		arithmeticHandler.rtt.setSize(scaleFactor * width, scaleFactor * height);
+		scalingHandler.rtt.setSize(scaleFactor * width, scaleFactor * height);
+
+		scene.remove( plane2 );
+		var scaledGeometry = new THREE.PlaneGeometry( scaleFactor, scaleFactor * aspect );
+		var material2 = new THREE.MeshBasicMaterial( { map: scalingHandler.rtt.texture, side: THREE.DoubleSide } );
+
+		plane2 = new THREE.Mesh( scaledGeometry, material2 );
+		scene.add(plane2);
+
+		var angle = degToRad(0);
+		var distance = scaleFactor * Math.cos(angle) / 2;
+
+		plane2.position.x += distance;
+		plane2.rotation.y = -angle;
 	});
-	gui.add(denoisingMaterial.uniforms.coverage, 'value', 0, 1).name('Coverage');
+	gui.add(scalingMaterial.uniforms.bilinearFiltering, 'value').name('Bilinear Filtering');
+	gui.add(scalingMaterial.uniforms.frag, 'value').name('Fragment Coordinate Gradient');
+	gui.add(arithmeticMaterial.uniforms.type, 'value', arithmeticOptions).name('Operator');
+	gui.add(arithmeticMaterial.uniforms.offset, 'value', -1, 1).name('Offset');
 
 	var material1 = new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } );
 	var material2 = new THREE.MeshBasicMaterial( { map: scalingHandler.rtt.texture, side : THREE.DoubleSide } );
@@ -375,24 +500,22 @@ function init () {
 	plane2.castShadow = false;
 	scene.add( plane2 );
 
-	// Tilt the planes towards the camera
-
-	var angle = degToRad(0);
-	var distance = Math.cos(angle) / 2;
-
-	plane1.position.x -= distance;
-	plane1.rotation.y = angle;
-	plane2.position.x += distance;
-	plane2.rotation.y = -angle;
-
 	window.addEventListener( 'resize', onWindowResize, false );
 }
 
 function render () {
 	renderer.clear();
 
+	if (convolutionHandler) {
+		processImage ( convolutionHandler, renderer );
+	}
+
 	if (denoisingHandler) {
 		processImage ( denoisingHandler, renderer );
+	}
+
+	if (arithmeticHandler) {
+		processImage ( arithmeticHandler, renderer );
 	}
 
 	if (scalingHandler) {

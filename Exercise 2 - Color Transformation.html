@@ -1,7 +1,6 @@
 <!--
-	Separable Filter
-		• GaussianHorizontal filter
-			o Parameters: kernel size, sigma
+	CIE L*C*h - hue shifting (with sRGB colors).
+		o Parameters: shifting angle in degree
 -->
 
 <!DOCTYPE html>
@@ -42,51 +41,78 @@
 
 	<script id="fragShaderColorTransformation" type="shader">
 		uniform sampler2D image;
-		uniform int kernelSize;
-		uniform float sigma;
+		uniform mat3 rgb2xyzMatrix;
+		uniform bool useAngle;
+		uniform float angle;
 	
 		out vec4 out_FragColor;
 
-		vec3 rgb2xyz(vec3 c){
-			vec3 tmp=vec3(
-				(c.r>.04045)?pow((c.r+.055)/1.055,2.4):c.r/12.92,
-				(c.g>.04045)?pow((c.g+.055)/1.055,2.4):c.g/12.92,
-				(c.b>.04045)?pow((c.b+.055)/1.055,2.4):c.b/12.92
-			);
-			mat3 mat=mat3(
-				.4124,.3576,.1805,
-				.2126,.7152,.0722,
-				.0193,.1192,.9505
-			);
-			return 100.*(tmp*mat);
+		float delta = 6. / 29.;
+		float Xn = 95.0489;
+		float Yn = 100.;
+		float Zn = 108.8840;
+
+		float srgb2linear(float Csrgb) {
+			if (Csrgb <= 0.04045) {
+				return Csrgb / 12.92;
+			} else {
+				return pow((Csrgb + 0.055) / 1.055, 2.);
+			}
 		}
 
-		vec3 xyz2lab(vec3 c){
-			vec3 n=c/vec3(95.047,100.,108.883),
-				 v=vec3(
-				(n.x>.008856)?pow(n.x,1./3.):(7.787*n.x)+(16./116.),
-				(n.y>.008856)?pow(n.y,1./3.):(7.787*n.y)+(16./116.),
-				(n.z>.008856)?pow(n.z,1./3.):(7.787*n.z)+(16./116.)
-			);
-			return vec3((116.*v.y)-16.,500.*(v.x-v.y),200.*(v.y-v.z));
+		vec3 rgb2xyz(vec3 rgb) {
+			vec3 RGB = vec3(srgb2linear(rgb.r), srgb2linear(rgb.g), srgb2linear(rgb.b));
+			return RGB * rgb2xyzMatrix;
 		}
 
-		vec3 rgb2lab(vec3 c){
-			vec3 lab=xyz2lab(rgb2xyz(c));
-			return vec3(lab.x/100.,.5+.5*(lab.y/127.),.5+.5*(lab.z/127.));
+		float f(float t) {
+			if (t > pow(delta, 3.)) {
+				return pow(t, 1. / 3.);
+			} else {
+				return t / pow(delta, 2.) + 4. / 29.;
+			}
 		}
-	
+
+		vec3 xyz2lab(vec3 xyz)
+		{
+			float X = xyz.x * 100.;
+			float Y = xyz.y * 100.;
+			float Z = xyz.z * 100.;
+			float L = 116. * f(Y / Yn) - 16.;
+			float a = 500. * (f(X / Xn) - f(Y / Yn));
+			float b = 200. * (f(Y / Yn) - f(Z / Zn));
+			return vec3(L / 100., a / 100., b / 100.);
+		}
+
+		vec3 lab2lch(vec3 lab)
+		{
+			float L = lab.x;
+			float a = lab.y;
+			float b = lab.z;
+			float C = sqrt(pow(a, 2.) + pow(b, 2.));
+			float h = atan(b / a);
+			return vec3(L, C, h);
+		}
+
+		vec3 rgb2lch(vec3 rgb) {
+			return lab2lch(xyz2lab(rgb2xyz(rgb)));
+		}
+
 		void main(void) {
 			float sampleX = gl_FragCoord.x;
 			float sampleY = gl_FragCoord.y;
 
 			vec4 value = texelFetch(image, ivec2(int(sampleX), int(sampleY)), 0);
 
-			out_FragColor = vec4(rgb2lab(value.xyz), 1.);
+			if (useAngle) {
+				out_FragColor = vec4(rgb2lch(value.rgb).xy, angle, 1);
+			} else {
+				out_FragColor = vec4(rgb2lch(value.rgb), 1);
+			}
+			// out_FragColor = vec4(rgb2xyz(value.rgb), 1);
 		}
 	</script>
 <script type="module">
-
 
 import * as THREE from 'https://cdn.skypack.dev/three@0.136.0/build/three.module.js';
 import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
@@ -102,6 +128,10 @@ var colorTransformationHandler;
 var verticalGaussianHandler;
 var gui;
 var guiObject;
+var rgb2xyzMatrix = new THREE.Matrix3();
+rgb2xyzMatrix.set(0.4124, 0.3576, 0.1805,
+0.2126, 0.7152, 0.0722,
+0.0193, 0.1192, 0.9505);
 
 // Setup image processing
 class ImageProcessingHandler {
@@ -270,7 +300,10 @@ function init () {
 
 	var colorTransformationMaterial = new THREE.ShaderMaterial({
     	uniforms: {
-			image: {type: 't', value: texture}
+			image: {type: 't', value: texture},
+			rgb2xyzMatrix: {value: rgb2xyzMatrix},
+			useAngle: { type: 'b', value: false },
+			angle: { type: 'f', value: 0 }
     	},
     	vertexShader: document.getElementById('vertShader').text,
     	fragmentShader: document.getElementById('fragShaderColorTransformation').text,
@@ -283,12 +316,8 @@ function init () {
 
 	gui = new GUI();
 
-	// gui.add(colorTransformationMaterial.uniforms.kernelSize, 'value', 0, 10, 1).name('Kernel Size').onChange(val => {
-	// 	verticalGaussianMaterial.uniforms.kernelSize = val;
-	// });
-	// gui.add(colorTransformationMaterial.uniforms.sigma, 'value', 0.75, 2.6).name('Sigma').onChange(val => {
-	// 	verticalGaussianMaterial.uniforms.sigma = val;
-	// });
+	gui.add(colorTransformationMaterial.uniforms.useAngle, 'value').name('Use angle');
+	gui.add(colorTransformationMaterial.uniforms.angle, 'value', -Math.PI * 4, Math.PI * 4).name('Angle');
 
 	var material1 = new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } );
 	var material2 = new THREE.MeshBasicMaterial( { map: colorTransformationHandler.rtt.texture, side : THREE.DoubleSide } );
