@@ -45,7 +45,6 @@
 		uniform sampler2D image;
 		uniform float scaleFactor;
 		uniform bool bilinearFiltering;
-		uniform bool frag;
 	
 		out vec4 out_FragColor;
 	
@@ -73,11 +72,6 @@
 				vec4 average = topXAverage * (sampleY - floor(sampleY)) + bottomXAverage * (ceil(sampleY) - sampleY);
 
 				textureValue = average;
-			}
-			if (frag) {
-				// Show gradient of fragment coordinates
-				float multiplier = gl_FragCoord.x / 3000. + gl_FragCoord.y / 1500.;
-				textureValue = vec4(multiplier, multiplier, multiplier, 1);
 			}
 			out_FragColor = textureValue;
 		}
@@ -413,11 +407,9 @@ function init () {
 		plane2 = new THREE.Mesh( scaledGeometry, material2 );
 		scene.add(plane2);
 
-		var angle = degToRad(0);
-		var distance = 1 * Math.cos(angle) / 2;
-
+		var distance = 1 / 2;
+		plane1.position.x -= distance;
 		plane2.position.x += distance;
-		plane2.rotation.y = -angle;
 	});
 
 	var material1 = new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } );
@@ -433,15 +425,9 @@ function init () {
 	plane2.castShadow = false;
 	scene.add( plane2 );
 
-	// Tilt the planes towards the camera
-
-	var angle = degToRad(0);
-	var distance = Math.cos(angle) / 2;
-
+	var distance = 1 / 2;
 	plane1.position.x -= distance;
-	plane1.rotation.y = angle;
 	plane2.position.x += distance;
-	plane2.rotation.y = -angle;
 
 	window.addEventListener( 'resize', onWindowResize, false );
 }

@@ -476,11 +476,9 @@ function init () {
 		plane2 = new THREE.Mesh( scaledGeometry, material2 );
 		scene.add(plane2);
 
-		var angle = degToRad(0);
-		var distance = scaleFactor * Math.cos(angle) / 2;
-
+		var distance = 1 / 2;
+		plane1.position.x -= distance;
 		plane2.position.x += distance;
-		plane2.rotation.y = -angle;
 	});
 	gui.add(scalingMaterial.uniforms.bilinearFiltering, 'value').name('Bilinear Filtering');
 	gui.add(scalingMaterial.uniforms.frag, 'value').name('Fragment Coordinate Gradient');
@@ -499,6 +497,10 @@ function init () {
 	plane2.receiveShadow = false;
 	plane2.castShadow = false;
 	scene.add( plane2 );
+
+	var distance = 1 / 2;
+	plane1.position.x -= distance;
+	plane2.position.x += distance;
 
 	window.addEventListener( 'resize', onWindowResize, false );
 }

@@ -142,14 +142,6 @@
 			float indexRange = (float(amountOfKernels) * coverage) / 2.;
 			int minRange = int(float(middleIndex) - indexRange);
 			int maxRange = int(float(middleIndex) + indexRange);
-			
-			/*
-			if (minRange == 0) {
-				out_FragColor = vec4(1, 1, 1, 0);
-			} else {
-				out_FragColor = vec4(1, 0, 0, 0);
-			}
-			*/
 
 			out_FragColor = vec4(getMean(rs, minRange, maxRange), getMean(gs, minRange, maxRange), getMean(bs, minRange, maxRange), 1.);
 		}
@@ -375,15 +367,9 @@ function init () {
 	plane2.castShadow = false;
 	scene.add( plane2 );
 
-	// Tilt the planes towards the camera
-
-	var angle = degToRad(0);
-	var distance = Math.cos(angle) / 2;
-
+	var distance = 1 / 2;
 	plane1.position.x -= distance;
-	plane1.rotation.y = angle;
 	plane2.position.x += distance;
-	plane2.rotation.y = -angle;
 
 	window.addEventListener( 'resize', onWindowResize, false );
 }

@@ -312,21 +312,9 @@ function init () {
 	plane2.castShadow = false;
 	scene.add( plane2 );
 
-	// var plane3 = new THREE.Mesh( geometry, imageProcessingMaterial );
-	// plane3.receiveShadow = false;
-	// plane3.castShadow = false;
-	// scene.add( plane3 );
-	// plane3.position.z = 0.1;
-
-	// Tilt the planes towards the camera
-
-	var angle = degToRad(0);
-	var distance = Math.cos(angle) / 2;
-
+	var distance = 1 / 2;
 	plane1.position.x -= distance;
-	plane1.rotation.y = angle;
 	plane2.position.x += distance;
-	plane2.rotation.y = -angle;
 
 	window.addEventListener( 'resize', onWindowResize, false );
 }

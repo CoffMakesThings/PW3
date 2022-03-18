@@ -113,8 +113,6 @@
 				default:
 					out_FragColor = (textureValue + textureValue2) * scaleFactor + offset;
 			  }
-
-			// out_FragColor = vec4(1, 0, 0, 1);
 		}
 	</script>
 <script type="module">
@@ -381,15 +379,9 @@ function init () {
 	plane2.castShadow = false;
 	scene.add( plane2 );
 
-	// Tilt the planes towards the camera
-
-	var angle = degToRad(0);
-	var distance = Math.cos(angle) / 2;
-
+	var distance = 1 / 2;
 	plane1.position.x -= distance;
-	plane1.rotation.y = angle;
 	plane2.position.x += distance;
-	plane2.rotation.y = -angle;
 
 	window.addEventListener( 'resize', onWindowResize, false );
 }
