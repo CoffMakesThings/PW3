@@ -179,9 +179,7 @@
 	<script id="fragShaderArithmetic" type="shader">
 		uniform sampler2D image;
 		uniform sampler2D image2;
-		uniform int type;
-		uniform float offset;
-		uniform float scaleFactor;
+		uniform float arithmeticScaling;
 	
 		out vec4 out_FragColor;
 	
@@ -192,21 +190,7 @@
 			vec4 textureValue = texelFetch(image, ivec2(int(sampleX), int(sampleY)), 0);
 			vec4 textureValue2 = texelFetch(image2, ivec2(int(sampleX), int(sampleY)), 0);
 
-			switch(type) {
-				case 1:
-					out_FragColor = (textureValue - textureValue2) * scaleFactor + offset;
-				  break;
-				case 2:
-					out_FragColor = (textureValue / textureValue2) * scaleFactor + offset;
-				  break;
-				case 3:
-					out_FragColor = (textureValue * textureValue2) * scaleFactor + offset;
-				  break;
-				default:
-					out_FragColor = (textureValue + textureValue2) * scaleFactor + offset;
-			  }
-
-			// out_FragColor = vec4(1, 0, 0, 1);
+			out_FragColor = (textureValue - textureValue2) * arithmeticScaling;
 		}
 	</script>
 <script type="module">
@@ -428,9 +412,7 @@ function init () {
     	uniforms: {
 			image: {type: 't', value: convolutionHandler.rtt.texture},
 			image2: {type: 't', value: denoisingHandler.rtt.texture},
-			scaleFactor: {type: 'f', value: 1},
-			offset: {type: 'f', value: 0},
-			type: {value: 1}
+			arithmeticScaling: {type: 'f', value: 200}
     	},
     	vertexShader: document.getElementById('vertShader').text,
     	fragmentShader: document.getElementById('fragShaderArithmetic').text,
@@ -443,8 +425,7 @@ function init () {
     	uniforms: {
 			image: {type: 't', value: arithmeticHandler.rtt.texture },
         	scaleFactor: {type: 'f', value: 1},
-			bilinearFiltering: {value: true},
-			frag: {value: false}
+			bilinearFiltering: {value: true}
     	},
     	vertexShader: document.getElementById('vertShader').text,
     	fragmentShader: document.getElementById('fragShaderScaling').text,
@@ -477,13 +458,11 @@ function init () {
 		scene.add(plane2);
 
 		var distance = 1 / 2;
-		plane1.position.x -= distance;
-		plane2.position.x += distance;
+		plane1.position.x = -distance;
+		plane2.position.x = distance * scaleFactor;
 	});
 	gui.add(scalingMaterial.uniforms.bilinearFiltering, 'value').name('Bilinear Filtering');
-	gui.add(scalingMaterial.uniforms.frag, 'value').name('Fragment Coordinate Gradient');
-	gui.add(arithmeticMaterial.uniforms.type, 'value', arithmeticOptions).name('Operator');
-	gui.add(arithmeticMaterial.uniforms.offset, 'value', -1, 1).name('Offset');
+	gui.add(arithmeticMaterial.uniforms.arithmeticScaling, 'value', 1, 200).name('Arithmetic Scale Factor');
 
 	var material1 = new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } );
 	var material2 = new THREE.MeshBasicMaterial( { map: scalingHandler.rtt.texture, side : THREE.DoubleSide } );
@@ -499,8 +478,8 @@ function init () {
 	scene.add( plane2 );
 
 	var distance = 1 / 2;
-	plane1.position.x -= distance;
-	plane2.position.x += distance;
+	plane1.position.x = -distance;
+	plane2.position.x = distance;
 
 	window.addEventListener( 'resize', onWindowResize, false );
 }
